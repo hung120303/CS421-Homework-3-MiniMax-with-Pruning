@@ -131,3 +131,108 @@ class AIPlayer(Player):
     def registerWin(self, hasWon):
         #method templaste, not implemented
         pass
+
+
+    ##
+    #
+    #miniMax
+    #Description: Takes an initial node, runs a minimax algorithm by searching 3 levels (moves) ahead
+    #             and returns the best move?
+    #
+    #Parameters:
+    #   initNode - the inital node
+    #   depth - the depth to look down (how many moves ahead)
+    #
+    #Returns: a node
+    def miniMax(self, initNode, depth):
+        if depth == 0: # If the depth is 0, we've reached the goal depth
+            return initNode
+        elif depth >= 1:
+            # We first get all the moves possible from the current state
+            initState = initNode["state"]
+            initDepth = initNode["depth"]
+            allLegalMoves = listAllLegalMoves(initState)
+
+            nodeList = []
+            for move in allLegalMoves:
+                nextState = getNextStateAdversarial(initState, move)
+                nextNode = self.makeNode(move, nextState, initDepth, initNode)
+                nodeList.append(nextNode)
+
+
+            # Need to update bestMove based on whose turn it is
+            # If it's our turn, we want the node with the most negative score
+            # If it's their turn, they'll take the node with the most positive score
+            # Right now bestMove get's the lowest evaluated node
+            whoseTurn = initState.whoseTurn
+            bestNode = None
+            if whoseTurn == 0: # our turn
+                bestNode = self.bestMove(nodeList) 
+            else: # their turn
+                bestNode = self.bestMove(nodeList)
+
+            # recurse till we get to depth
+            return self.miniMax(bestNode, depth - 1)
+
+
+
+
+    ##
+    # makeNode
+    # description: creates a search tree node (copied from HW#2)
+    #
+    # paramaters:
+    # move - move taken from parent state
+    # state - resulting gamestate after the move
+    # depth - depth in the search tree
+    # parent - parent node (or none if the root)
+    #
+    # returns dict representing the node
+    ##
+    def makeNode(self, move, state, depth, parent):
+        return{
+            "move": move,
+            "state": state,
+            "depth": depth,
+            "eval": self.utility(state) + depth, 
+            "parent": parent
+        }
+    
+    ##
+    # bestNode
+    # Description: finds the node with the best evaluation (utility) (copied from HW#2)
+    #
+    # Parameters: 
+    # nodeList - the list of nodes to search 
+    #
+    # Returns: our "node" representation
+    def bestMove(self, nodeList):
+        # Type checking
+        if not isinstance(nodeList, list):
+            print("bestMove: ", nodeList , " is not a list of node")
+            return None
+
+        # start with the first node as the best
+        bestNode = nodeList[0]
+
+        # List to track nodes that have equal evaluation to the best node
+        bestList = []
+
+        # go through each node in the list
+        for node in nodeList:
+            # if this node has a smaller eval score than our current best
+            if node["eval"] < bestNode["eval"]:
+                #update bestNode
+                bestNode = node
+                #clear the list equal and best nodes (a new best node is found, so no similar nodes)
+                bestList.clear()
+            elif node["eval"] == bestNode["eval"]:
+                bestList.append(node)
+        
+        # If we have multiple best nodes, randomly choose between them (avoid cycling moves)
+        if len(bestList) > 0 :
+            bestList.append(bestNode)
+            return bestList[random.randint(0, len(bestList) - 1)]
+        else:
+            # There's only one best node    
+            return bestNode
