@@ -102,12 +102,28 @@ class AIPlayer(Player):
     #Return: The Move to be made
     ##
     def getMove(self, currentState):
-        MINIMAX_DEPTH = 1
-        # move is None (don't remember previous turns), initial depth is 0, no parent 
-        initNode = self.makeNode(None, currentState, 0, None)
-        bestNode = self.miniMax(initNode, MINIMAX_DEPTH, currentState.whoseTurn)
-            
-        return bestNode["move"]
+        depth = 3
+        root = self.makeNode(None, currentState, 0, None)
+        bestMove = None
+        bestVal = -math.inf
+
+        children = self.expandNode(root)
+        if not children:
+            return Move(END, None, None)
+
+
+        for child in children:
+            val = self.miniMax(child, depth-1, -math.inf, math.inf)
+            if val > bestVal:
+                bestVal = val
+                bestMove = child["move"]
+
+        #fallback in case nothing gets chosen
+        if bestMove is None:
+            return Move(END, None, None)
+        
+        return bestMove
+
     
     ##
     #getAttack
@@ -144,23 +160,41 @@ class AIPlayer(Player):
     #
     #Return:
     #   best child node
-    def miniMax(self, initNode, depth, maximizing):
-        if depth == 0:
-            return initNode
+    def miniMax(self, node, depth, alpha, beta):
+
+        state = node["state"]
+
+        if depth == 0 or getWinner(state) is not None:
+            return self.utility(state)
+        
+        # is max turn
+        isMax = (state.whoseTurn == self.playerId)
         # Get all nodes (possible modes)
-        nodeList = self.expandNode(initNode)
+        nodeList = self.expandNode(node)
+        if not nodeList:
+            return self.utility(state)
+        
+        #max players turn
+        if isMax:
+            value = -math.inf
+            for child in nodeList:
+                val = self.miniMax(child, depth - 1, alpha, beta)
+                value = max(value, val)
+                alpha = max(alpha, value)
 
-        # recurse until we get to key depth
-        for node in nodeList:
-            print("Util : ", node["eval"], " - Move: " , node["move"])
-            self.miniMax(node, depth - 1, maximizing)
-            
-        # Set the initial node with adjusted minimax utility
-        bestChild = self.bestMove(nodeList, maximizing)
-        initNode["eval"] = bestChild["eval"]
-
-        print("Util : ", node["eval"]," - Chosen Move: " , bestChild["move"])
-        return bestChild
+                if alpha >= beta:
+                    break  # prune
+            return value
+        else:
+            value = math.inf
+            for child in nodeList:
+                val = self.miniMax(child, depth - 1, alpha, beta)
+                value = min(value, val)
+                beta = min(beta, value)
+                
+                if alpha >= beta:
+                    break  # prune
+            return value
             
 
 
