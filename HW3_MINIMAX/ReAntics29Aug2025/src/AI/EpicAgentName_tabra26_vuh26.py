@@ -160,42 +160,45 @@ class AIPlayer(Player):
     #
     #Return:
     #   best child node
+    ## ========================================================= ##
+    ##                     MINIMAX WITH α-β                      ##
+    ## ========================================================= ##
     def miniMax(self, node, depth, alpha, beta):
-
         state = node["state"]
 
-        if depth == 0 or getWinner(state) is not None:
+        # Early stop if game over
+        winner = getWinner(state)
+        if depth == 0 or winner is not None:
+            if winner == self.playerId:
+                return 9999
+            elif winner is not None:
+                return -9999
             return self.utility(state)
-        
-        # is max turn
+
         isMax = (state.whoseTurn == self.playerId)
-        # Get all nodes (possible modes)
-        nodeList = self.expandNode(node)
-        if not nodeList:
+        children = self.expandNode(node)
+        if not children:
             return self.utility(state)
-        
-        #max players turn
+
         if isMax:
             value = -math.inf
-            for child in nodeList:
+            for child in children:
                 val = self.miniMax(child, depth - 1, alpha, beta)
                 value = max(value, val)
                 alpha = max(alpha, value)
-
                 if alpha >= beta:
                     break  # prune
             return value
         else:
             value = math.inf
-            for child in nodeList:
+            for child in children:
                 val = self.miniMax(child, depth - 1, alpha, beta)
                 value = min(value, val)
                 beta = min(beta, value)
-                
                 if alpha >= beta:
                     break  # prune
             return value
-            
+
 
 
 
@@ -282,23 +285,27 @@ class AIPlayer(Player):
     # initNode - the initial node
     #
     # Returns: list of nodes
-    def expandNode(self, initNode):
-        if initNode == None:
+    ## ========================================================= ##
+    ##                  EXPAND NODE (TOP N%)                     ##
+    ## ========================================================= ##
+    def expandNode(self, initNode, top_percent=0.5):
+        if initNode is None:
             return None
         moves = listAllLegalMoves(initNode["state"])
-        initState = initNode["state"]
-        initDepth = initNode["depth"]
+        if not moves:
+            return None
 
         nodes = []
-
-        # build nodes for each possible moves
         for m in moves:
-            nextState = getNextStateAdversarial(initState, m)
-            # these nodes are +1 depth from initial, and their parent is always the initNode
-            node = self.makeNode(m, nextState, (initDepth + 1), initNode) 
+            nextState = getNextStateAdversarial(initNode["state"], m)
+            node = self.makeNode(m, nextState, initNode["depth"] + 1, initNode)
             nodes.append(node)
 
-        return nodes
+        # Sort by eval (higher is better for us)
+        nodes.sort(key=lambda n: n["eval"], reverse=True)
+        keep = max(1, int(len(nodes) * top_percent))
+        return nodes[:keep]
+
 
     ## 
     #utility
@@ -417,22 +424,28 @@ class AIPlayer(Player):
                     foodTurns += 2 * approxDist(worker.coords, ant.coords)
         
         ## Combat ##
+        score = 0
 
-        #######
-        #QUEEN#
-        #######
-
+        # --- Queen logic --- #
         myQueen = myInv.getQueen()
         enemyQueen = enemyInv.getQueen()
+        if myQueen and enemyQueen:
+            distToEnemyQueen = stepsToReach(currentState, myQueen.coords, enemyQueen.coords)
+            score += (10 - enemyQueen.health) * 20
 
-        if myQueen == None or enemyQueen == None: return -math.inf
-        queenHealthDifference = enemyQueen.health - myQueen.health
-        
-        # For a queen win, estimate that it'll take 10 turns to reduce 1 health
-        queenTurns = 10 * enemyQueen.health
+            #encourage leaving anthill but staying close
+            if myQueen.coords == myAntHill.coords:
+                score -= 10
+            else:
+                score += 5
 
-        if enemyQueen.health <= 0:
-            return -math.inf
+
+            if myQueen.health > 6 and distToEnemyQueen < 7:
+                score += 8
+
+            #defend base
+            if myAntHill.captureHealth <= 1:
+                score -= 15
 
         #########
         #ANTHILL#
