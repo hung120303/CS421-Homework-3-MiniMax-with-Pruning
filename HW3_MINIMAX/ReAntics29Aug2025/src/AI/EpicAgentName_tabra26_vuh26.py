@@ -160,29 +160,31 @@ class AIPlayer(Player):
     #
     #Return:
     #   best child node
-    ## ========================================================= ##
-    ##                     MINIMAX WITH α-β                      ##
-    ## ========================================================= ##
     def miniMax(self, node, depth, alpha, beta):
         state = node["state"]
 
-        # Early stop if game over
-        winner = getWinner(state)
-        if depth == 0 or winner is not None:
-            if winner == self.playerId:
-                return 9999
-            elif winner is not None:
-                return -9999
+        # base case
+        if depth == 0 or getWinner(state) is not None:
             return self.utility(state)
 
         isMax = (state.whoseTurn == self.playerId)
-        children = self.expandNode(node)
-        if not children:
-            return self.utility(state)
+        nodeList = self.expandNode(node)
 
+        # fallback if no legal moves (END only)
+        if not nodeList:
+            return self.utility(state) + random.uniform(-2, 2)
+
+        # ----------- TOP-N-PERCENT NODE FILTER -----------
+        keep_ratio = 0.2  # keep the top 30% of nodes
+        nodeList.sort(key=lambda n: n["eval"], reverse=isMax)
+        k = max(1, int(len(nodeList) * keep_ratio))
+        nodeList = nodeList[:k]
+        # -------------------------------------------------
+
+        # α-β search
         if isMax:
             value = -math.inf
-            for child in children:
+            for child in nodeList:
                 val = self.miniMax(child, depth - 1, alpha, beta)
                 value = max(value, val)
                 alpha = max(alpha, value)
@@ -191,7 +193,7 @@ class AIPlayer(Player):
             return value
         else:
             value = math.inf
-            for child in children:
+            for child in nodeList:
                 val = self.miniMax(child, depth - 1, alpha, beta)
                 value = min(value, val)
                 beta = min(beta, value)
@@ -285,27 +287,23 @@ class AIPlayer(Player):
     # initNode - the initial node
     #
     # Returns: list of nodes
-    ## ========================================================= ##
-    ##                  EXPAND NODE (TOP N%)                     ##
-    ## ========================================================= ##
-    def expandNode(self, initNode, top_percent=0.5):
-        if initNode is None:
+    def expandNode(self, initNode):
+        if initNode == None:
             return None
         moves = listAllLegalMoves(initNode["state"])
-        if not moves:
-            return None
+        initState = initNode["state"]
+        initDepth = initNode["depth"]
 
         nodes = []
+
+        # build nodes for each possible moves
         for m in moves:
-            nextState = getNextStateAdversarial(initNode["state"], m)
-            node = self.makeNode(m, nextState, initNode["depth"] + 1, initNode)
+            nextState = getNextStateAdversarial(initState, m)
+            # these nodes are +1 depth from initial, and their parent is always the initNode
+            node = self.makeNode(m, nextState, (initDepth + 1), initNode) 
             nodes.append(node)
 
-        # Sort by eval (higher is better for us)
-        nodes.sort(key=lambda n: n["eval"], reverse=True)
-        keep = max(1, int(len(nodes) * top_percent))
-        return nodes[:keep]
-
+        return nodes
 
     ## 
     #utility
@@ -322,17 +320,11 @@ class AIPlayer(Player):
         myInv = getCurrPlayerInventory(currentState)
         enemyInv = getEnemyInv(self, currentState)
         
-        # Get the three ways of winning, we want to return the method of
-        # winning that will take the least ammount of moves
-
         foodTurns = 0
         queenTurns = 0
         anthillTurns = 0
 
-        ######
-        #FOOD#
-        ######
-
+        ###### FOOD ######
         myWorkerList = getAntList(currentState, myInv.player, (WORKER,))
         myFood = getCurrPlayerFood(self, currentState)
         myFoodCount = myInv.foodCount
@@ -363,139 +355,99 @@ class AIPlayer(Player):
             foodTurns += 100
         elif numWorkers == 1:
             foodTurns -= 10
-        else: # Too many workers
+        else:
             foodTurns += 100
 
-        # Impact based on enemy worker
+        # Impact based on enemy worker count
         if foodTurns != math.inf and numEnemyWorkers >= 1:
-            foodTurns = foodTurns + math.ceil(foodTurns*numEnemyWorkers / 2)
-
-        # Impact the turns based on if workers ants are carrying or not
-        # Also impact based on how close they are to the food or tunnel/anthill based on that
-
+            foodTurns = foodTurns + math.ceil(foodTurns * numEnemyWorkers / 2)
 
         for worker in myWorkerList:
-            # Workers should stay on our side
             if worker.coords[1] > 3:
                 foodTurns += 1000
             if not worker.hasMoved:
                 foodTurns += 10
             
-
             if worker.carrying:
                 foodTurns -= 2
-                bestDist = math.inf
                 distFromTunnel = stepsToReach(currentState, worker.coords, myTunnel.coords)
                 distFromAnthill = stepsToReach(currentState, worker.coords, myAntHill.coords)
-                if distFromAnthill < distFromTunnel:
-                    bestDist = distFromAnthill
-                    bestCoords = myAntHill.coords
-                else:
-                    bestDist = distFromTunnel
-                    bestCoords = myTunnel.coords
-                # Greater distance means more turns to take
+                bestDist = min(distFromAnthill, distFromTunnel)
                 if bestDist == 0:
                     foodTurns -= 15
                 else:
                     foodTurns -= 12 - bestDist
-
             else:
-                bestDist = math.inf
                 distFromFoodOne = stepsToReach(currentState, worker.coords, myFood[0].coords)
                 distFromFoodTwo = stepsToReach(currentState, worker.coords, myFood[1].coords)
-                if distFromFoodTwo < distFromFoodOne:
-                    bestDist = distFromFoodTwo
-                    bestCoords = myFood[1].coords
-                else:
-                    bestDist = distFromFoodOne
-                    bestCoords = myFood[0].coords
-
-                # Greater distance means more turns to take
+                bestDist = min(distFromFoodOne, distFromFoodTwo)
                 if bestDist == 0:
                     foodTurns -= 15
                 else:
                     foodTurns -= 12 - bestDist 
 
-            # If they're close to enemies, punish that harshly
-            adjacentToWorker = listAdjacent(worker.coords)
-            for coord in adjacentToWorker:
+            # Punish being near enemies
+            for coord in listAdjacent(worker.coords):
                 ant = getAntAt(currentState, coord)
-                if ant != None and ant.player == PLAYER_TWO:
+                if ant and ant.player == PLAYER_TWO:
                     foodTurns += 2 * approxDist(worker.coords, ant.coords)
-        
-        ## Combat ##
-        score = 0
 
-        # --- Queen logic --- #
+        ###### COMBAT / QUEEN ######
         myQueen = myInv.getQueen()
         enemyQueen = enemyInv.getQueen()
-        if myQueen and enemyQueen:
-            distToEnemyQueen = stepsToReach(currentState, myQueen.coords, enemyQueen.coords)
-            score += (10 - enemyQueen.health) * 20
+        if myQueen is None or enemyQueen is None:
+            return -math.inf
 
-            #encourage leaving anthill but staying close
-            if myQueen.coords == myAntHill.coords:
-                score -= 10
-            else:
-                score += 5
+        # --- NEGATED queen logic begins ---
+        queenHealthDifference = -(enemyQueen.health - myQueen.health)
+        queenTurns = -(10 * enemyQueen.health)  # flip
+        if enemyQueen.health <= 0:
+            return -math.inf
+        # --- NEGATED queen logic ends ---
 
-
-            if myQueen.health > 6 and distToEnemyQueen < 7:
-                score += 8
-
-            #defend base
-            if myAntHill.captureHealth <= 1:
-                score -= 15
-
-        #########
-        #ANTHILL#
-        #########
-
+        ###### ANTHILL ######
         anthillHealthDifference = enemyAntHill.captureHealth - myAntHill.captureHealth
-
-        # For a anthill win, estimate that it'll take 30 turns to reduce 1 health
         anthillTurns = 30 * enemyAntHill.captureHealth
+
         attackAntList = getAntList(currentState, myInv.player, (QUEEN, SOLDIER, DRONE, R_SOLDIER))
         enemyAntList = getAntList(currentState, enemyInv.player, (SOLDIER, DRONE, R_SOLDIER, WORKER, QUEEN))
 
-        antTypeCount = [0,0,0,0,0] 
-
-        combatScore = (len(enemyAntList)*2 - len(attackAntList))*10
+        combatScore = (len(enemyAntList) * 2 - len(attackAntList)) * 10
         for attackAnt in attackAntList:
             if attackAnt.hasMoved:
                 combatScore -= 5
             else:
                 combatScore += 5
 
-            # Good if our ants are towards the enemy
             if attackAnt.coords[1] >= 5:
                 combatScore -= 2
-            # Find the closest enemy and worker
+
             closestEnemy = None
             closestWorker = None
             shortestDist = math.inf
             for enemy in enemyAntList:
                 enemyDist = stepsToReach(currentState, enemy.coords, attackAnt.coords)
-                if closestEnemy == None or enemyDist < shortestDist:
+                if closestEnemy is None or enemyDist < shortestDist:
                     shortestDist = enemyDist
                     closestEnemy = enemy
                     if enemy.type == WORKER:
                         closestWorker = enemy
 
-            if closestEnemy == None:
+            if closestEnemy is None:
                 break
-            # Unique combat for each ant type
+
             if attackAnt.type == QUEEN:
+                # --- NEGATED queen scoring ---
                 if attackAnt.health <= 4:
-                    # Run away when low
-                    combatScore -= shortestDist
+                    combatScore += shortestDist   # inverted sign
                 elif closestEnemy.type != WORKER:
-                    combatScore += shortestDist
+                    combatScore -= shortestDist   # inverted sign
                 for coord in listReachableAdjacent(currentState, attackAnt.coords, UNIT_STATS[QUEEN][MOVEMENT]):
-                    if getAntAt(currentState, coord) != None and getAntAt(currentState, coord).type == WORKER:
-                        foodTurns -= 3
-            elif attackAnt.type == DRONE: # get workers
-                if closestWorker != None:
+                    if getAntAt(currentState, coord) and getAntAt(currentState, coord).type == WORKER:
+                        foodTurns += 3             # inverted sign
+                # --- end negated block ---
+            elif attackAnt.type == DRONE:
+                if closestWorker is not None:
                     combatScore += approxDist(attackAnt.coords, closestWorker.coords)
                 else:
                     combatScore += shortestDist
@@ -506,28 +458,23 @@ class AIPlayer(Player):
                     combatScore += shortestDist
             elif attackAnt.type == SOLDIER:
                 combatScore += shortestDist
-        
-            # If we're within range the enemies next move, bad
+            
             if enemyDist <= UNIT_STATS[enemy.type][MOVEMENT] and closestEnemy.type != WORKER:
                 combatScore += 1
 
-            # If we can kill the closest ant, good
             if (attackAnt.type != R_SOLDIER and
                 attackAnt.coords in listAdjacent(closestEnemy.coords) and
                 UNIT_STATS[attackAnt.type][ATTACK] >= closestEnemy.health):
                 combatScore -= 10
 
-            # If we;re on the enenmy anthill, good
             if attackAnt.coords == enemyAntHill.coords:
                 combatScore -= 10
             
             if approxDist(attackAnt.coords, enemyTunnel.coords) <= 3:
                 combatScore -= 1
 
-            # Protect the anthill when hp low
             if myAntHill.captureHealth == 1 and attackAnt.coords == myAntHill.coords:
                 combatScore -= 5
-            # When it's not low we get off important structures
             elif (attackAnt.coords == myTunnel.coords or
                 attackAnt.coords == myFood[0].coords or attackAnt.coords == myFood[1].coords):
                 combatScore += 10
@@ -536,31 +483,35 @@ class AIPlayer(Player):
         numSoldiers = len(getAntList(currentState, myInv.player, (SOLDIER,)))
         numR_Soldiers = len(getAntList(currentState, myInv.player, (R_SOLDIER,)))
 
-        # Should have at least one troop
         if (numDrones + numSoldiers + numR_Soldiers) == 0:
             combatScore += 200
 
-        # Have a drone against a worker
         if numDrones == 1 and numEnemyWorkers == 1:
             combatScore -= 5
         elif numEnemyWorkers == 0:
             combatScore -= 20
 
-        # Have at least a soldier when enemy has threats
         if (numSoldiers == 0 and len(enemyAntList) != (numEnemyWorkers + 1)):
             combatScore += 5
         else:
             combatScore -= 10
 
-        # Having at least one range and soldiers match the enemy count is good, other equal soldiers is good
         if numR_Soldiers == 1 and (numSoldiers - 1) == len(enemyAntList):
             combatScore -= 3
         elif numSoldiers == len(enemyAntList):
             combatScore -= 2
 
+        # --- NEGATED queen movement logic ---
+        if myQueen:
+            qx, qy = myQueen.coords
+            dist = approxDist(myQueen.coords, myAntHill.coords)
+            if dist == 0:
+                combatScore -= 3000   # flipped sign
+            elif 1 <= dist <= 3:
+                combatScore += 50     # flipped sign
+            else:
+                combatScore -= 100    # flipped sign
+        # --- end negated queen movement logic ---
 
-        bestGuess = min(queenTurns, anthillTurns, foodTurns) + combatScore + math.floor(foodTurns/4)
-        
-        if currentState.whoseTurn == PLAYER_TWO:
-            return -bestGuess
-        return bestGuess
+        bestGuess = min(queenTurns, anthillTurns, foodTurns) + combatScore + math.floor(foodTurns / 4)
+        return -bestGuess
