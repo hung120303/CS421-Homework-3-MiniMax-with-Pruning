@@ -37,6 +37,7 @@ class AIPlayer(Player):
     ##
     def __init__(self, inputPlayerId):
         super(AIPlayer,self).__init__(inputPlayerId, "EpicAgentName")
+        self.whichPlayer = None
     
     ##
     #getPlacement
@@ -102,6 +103,10 @@ class AIPlayer(Player):
     #Return: The Move to be made
     ##
     def getMove(self, currentState):
+        # track which side we're on
+        if self.whichPlayer == None:
+            self.whichPlayer = getCurrPlayerInventory(currentState).player
+
         depth = 3
         root = self.makeNode(None, currentState, 0, None)
         bestMove = None
@@ -113,7 +118,7 @@ class AIPlayer(Player):
 
 
         for child in children:
-            val = self.miniMax(child, depth-1, -math.inf, math.inf)
+            val = self.miniMax(child, depth-1, -math.inf, math.inf, currentState)
             if val > bestVal:
                 bestVal = val
                 bestMove = child["move"]
@@ -160,14 +165,16 @@ class AIPlayer(Player):
     #
     #Return:
     #   best child node
-    def miniMax(self, node, depth, alpha, beta):
+    def miniMax(self, node, depth, alpha, beta, currentState):
         state = node["state"]
 
         # base case
         if depth == 0 or getWinner(state) is not None:
             return self.utility(state)
 
-        isMax = (state.whoseTurn == self.playerId)
+        myInv = getCurrPlayerInventory(currentState)
+
+        isMax = (state.whoseTurn == self.whichPlayer)
         nodeList = self.expandNode(node)
 
         # fallback if no legal moves (END only)
@@ -185,7 +192,7 @@ class AIPlayer(Player):
         if isMax:
             value = -math.inf
             for child in nodeList:
-                val = self.miniMax(child, depth - 1, alpha, beta)
+                val = self.miniMax(child, depth - 1, alpha, beta, currentState)
                 value = max(value, val)
                 alpha = max(alpha, value)
                 if alpha >= beta:
@@ -194,7 +201,7 @@ class AIPlayer(Player):
         else:
             value = math.inf
             for child in nodeList:
-                val = self.miniMax(child, depth - 1, alpha, beta)
+                val = self.miniMax(child, depth - 1, alpha, beta, currentState)
                 value = min(value, val)
                 beta = min(beta, value)
                 if alpha >= beta:
@@ -309,13 +316,136 @@ class AIPlayer(Player):
     #utility
     #Description: Looks at a GameState object and gives a 
     #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   currentState - The current GameState object
+    #   
+    #Returns: number from -10000 to 10000
+    def utility(self, currentState):
+        # Useful pointers
+        myInv = getCurrPlayerInventory(currentState)
+        enemyInv = getEnemyInv(self, currentState)
+
+        # initial utility starts at 0 (game is "even")
+        ret_utility = 0
+
+        ret_utility = self.food_utility(myInv, enemyInv) + self.worker_utility(myInv, currentState)
+
+        if self.whichPlayer == currentState.whoseTurn:
+            return ret_utility
+        else:
+            return -ret_utility
+
+    ## 
+    #food_utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   myInv - our inv
+    #   enemyInv - enemy inv
+    #   
+    #Returns: number from -1000 to 1000
+    def food_utility(self, myInv, enemyInv):
+        myFoodCount = myInv.foodCount
+        enemyFoodCount = enemyInv.foodCount
+
+        # Check for wins
+        if myFoodCount == FOOD_GOAL:
+            return 10000
+        elif enemyFoodCount == FOOD_GOAL:
+            return -10000
+        
+        # Affect the utility based on difference
+        myHue = round((myFoodCount / FOOD_GOAL) * 900)
+        enemyHue = -round((enemyFoodCount / FOOD_GOAL) * 900)
+
+        # Return difference and worker utility
+        return myHue + enemyHue
+
+    ##
+    #worker_utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   myInv - our inv
+    #   currentState - the current GameState object
+    #   
+    #Returns: number from -100 to 100
+    def worker_utility(self, myInv, currentState):
+        workerHue = 0
+        enemyId = (myInv.player+1) % 2
+
+        myReturns = getConstrList(currentState, myInv.player, (ANTHILL, TUNNEL))
+        enemyReturns = getConstrList(currentState, enemyId, (ANTHILL, TUNNEL))
+
+        myWorkers = getAntList(currentState, myInv.player, (WORKER,))
+        enemyWorkers = getAntList(currentState, enemyId, (WORKER,))
+        
+        foodList = getConstrList(currentState, None, (FOOD,))
+        
+
+
+        if len(myReturns) == 0 or len(enemyReturns) == 0 or len(foodList) == 0:
+            return 0
+        
+        if len(myWorkers) > 2:
+            workerHue -= 100
+        
+        if len(enemyWorkers) > 2:
+            workerHue += 100
+
+        for worker in myWorkers:
+            if worker.carrying and worker.coords in myReturns:
+                workerHue += 50
+            elif worker.carrying:
+                distOne = approxDist(worker.coords, myReturns[0].coords)
+                distTwo = approxDist(worker.coords, myReturns[1].coords)
+                workerHue += 25 - min(distOne, distTwo)
+            elif worker.coords in foodList:
+                workerHue += 50
+            else:
+                distOne = approxDist(worker.coords, foodList[0].coords)
+                distTwo = approxDist(worker.coords, foodList[1].coords)
+                distThree = approxDist(worker.coords, foodList[2].coords)
+                distFour = approxDist(worker.coords, foodList[3].coords)
+                workerHue += 15 - min(distOne, distTwo, distThree, distFour)
+            
+
+        for worker in enemyWorkers:
+            if worker.carrying and worker.coords in myReturns:
+                workerHue -= 50
+            elif worker.carrying:
+                distOne = approxDist(worker.coords, enemyReturns[0].coords)
+                distTwo = approxDist(worker.coords, enemyReturns[1].coords)
+                workerHue -= 25 - min(distOne, distTwo)
+            elif worker.coords in foodList:
+                workerHue -= 50
+            else:
+                distOne = approxDist(worker.coords, foodList[0].coords)
+                distTwo = approxDist(worker.coords, foodList[1].coords)
+                distThree = approxDist(worker.coords, foodList[2].coords)
+                distFour = approxDist(worker.coords, foodList[3].coords)
+                workerHue -= 15 - min(distOne, distTwo, distThree, distFour)
+
+
+        return workerHue
+
+
+
+        
+
+    #utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
     #   Estimates # of moves to reach its goal from current state (copied from HW2)
     #
     #Parameters:
     #   currentState - The current GameState object
     #   
     #Returns: number of moves to get to the goal state
-    def utility(self, currentState):
+    def utility_(self, currentState):
         # Useful pointers
         myInv = getCurrPlayerInventory(currentState)
         enemyInv = getEnemyInv(self, currentState)
