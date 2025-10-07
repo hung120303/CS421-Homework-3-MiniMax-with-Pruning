@@ -509,9 +509,9 @@ class AIPlayer(Player):
             inventoryHue += 25*(len(myArmy) - len(enemyArmy))
         
         if len(myArmy) == 0:
-            inventoryHue += 500
+            inventoryHue -= 250
         if len(enemyArmy) == 0:
-            inventoryHue -= 500
+            inventoryHue += 250
 
         return inventoryHue
 
@@ -537,34 +537,40 @@ class AIPlayer(Player):
         enemySoldiers = getAntList(currentState, enemyInv.player, (SOLDIER,))
 
 
-        if len(mySoldiers) < len(enemyAntList) + 2:
-            soldierHue -= 25
-        if len(enemySoldiers) < len(myAntList) + 2:
-            soldierHue += 25
+        
+
 
         if len(enemyAntList) > 0:
+            if len(mySoldiers) > 0:
+                soldierHue += 100
             for soldier in mySoldiers:
-                soldierHue += 25 - approxDist(soldier.coords, enemyAntList[0].coords)
+                soldierHue += 50 - 5*approxDist(soldier.coords, enemyAntList[0].coords)
 
                 for coord in listAdjacent(soldier.coords):
                     ant = getAntAt(currentState, coord)
                     if ant != None and ant.player == enemyInv.player and ant.health <= UNIT_STATS[SOLDIER][ATTACK]:
-                        soldierHue += 25
+                        soldierHue += 100
                     elif ant != None and ant.player == enemyInv.player:
-                        soldierHue += 20
+                        soldierHue += 25
+        else:
+            soldierHue += 125
         
         
         
         if len(myAntList) > 0:
+            if len(enemySoldiers) > 0:
+                soldierHue -= 100
             for soldier in enemySoldiers:
-                soldierHue -= 25 - approxDist(soldier.coords, myAntList[0].coords)
+                soldierHue -= 50 - 5*approxDist(soldier.coords, myAntList[0].coords)
                 
                 for coord in listAdjacent(soldier.coords):
                     ant = getAntAt(currentState, coord)
                     if ant != None and ant.player == myInv.player and ant.health <= UNIT_STATS[SOLDIER][ATTACK]:
-                        soldierHue -= 25
+                        soldierHue -= 100
                     elif ant != None and ant.player == myInv.player:
-                        soldierHue -= 20
+                        soldierHue -= 25
+        else:
+            soldierHue -= 125
 
         return soldierHue
 
@@ -605,9 +611,9 @@ class AIPlayer(Player):
         else:
             for drone in myDrones:
                 if drone.coords in listAdjacent(enemyWorkers[0].coords):
-                    droneHue += 50
+                    droneHue += 250
                 else:
-                    droneHue += 25 - approxDist(drone.coords, enemyWorkers[0].coords)
+                    droneHue += 125 - 10*approxDist(drone.coords, enemyWorkers[0].coords)
                     
         if len(myWorkers) == 0:
             droneHue -= 150   
@@ -616,9 +622,9 @@ class AIPlayer(Player):
         else:
             for drone in enemyDrones:
                 if drone.coords in listAdjacent(myWorkers[0].coords):
-                    droneHue -= 50
+                    droneHue -= 250
                 else:
-                    droneHue -= 25 - approxDist(drone.coords, myWorkers[0].coords)
+                    droneHue -= 125 - 10*approxDist(drone.coords, myWorkers[0].coords)
         
         return droneHue
 
