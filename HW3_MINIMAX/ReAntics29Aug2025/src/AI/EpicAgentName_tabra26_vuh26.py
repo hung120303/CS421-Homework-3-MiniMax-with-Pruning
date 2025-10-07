@@ -479,6 +479,7 @@ class AIPlayer(Player):
         # Each ant type contributes to hueristic
         combatHue += self.drone_utility(myInv, enemyInv, currentState)
         combatHue += self.soldier_utility(myInv, enemyInv, currentState)
+        combatHue += self.queen_utility(myInv, enemyInv, currentState)
         
         # Total army composition affects hueristic
         combatHue += self.attack_inventory_utility(myInv, enemyInv, currentState)
@@ -486,7 +487,7 @@ class AIPlayer(Player):
         return combatHue
 
     ##
-    #soldier_utility
+    #attack_inventory_utility
     #Description: Looks at a GameState object and gives a 
     #   heuristic guess of good the game state is. 
     #
@@ -495,22 +496,22 @@ class AIPlayer(Player):
     #   enemyInv - enemy inv
     #   currentState - the current GameState object
     #   
-    #Returns: number from -2500 to 2500
+    #Returns: number from -500 to 500
     def attack_inventory_utility(self, myInv, enemyInv, currentState):
         inventoryHue = 0
 
         myArmy = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER))
         enemyArmy = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER))
 
-        if len(myArmy) > 3:
-            inventoryHue -= 250 * (len(myArmy) - 2)
-        if len(enemyArmy) > 3:
-            inventoryHue += 250 * (len(enemyArmy) - 2)
-
         if len(myArmy) == len(enemyArmy):
             inventoryHue += 0
         else:
-            inventoryHue += 5*(len(myArmy) - len(enemyArmy))
+            inventoryHue += 25*(len(myArmy) - len(enemyArmy))
+        
+        if len(myArmy) == 0:
+            inventoryHue += 500
+        if len(enemyArmy) == 0:
+            inventoryHue -= 500
 
         return inventoryHue
 
@@ -535,13 +536,35 @@ class AIPlayer(Player):
         mySoldiers = getAntList(currentState, myInv.player, (SOLDIER,))
         enemySoldiers = getAntList(currentState, enemyInv.player, (SOLDIER,))
 
+
+        if len(mySoldiers) < len(enemyAntList) + 2:
+            soldierHue -= 25
+        if len(enemySoldiers) < len(myAntList) + 2:
+            soldierHue += 25
+
         if len(enemyAntList) > 0:
             for soldier in mySoldiers:
                 soldierHue += 25 - approxDist(soldier.coords, enemyAntList[0].coords)
+
+                for coord in listAdjacent(soldier.coords):
+                    ant = getAntAt(currentState, coord)
+                    if ant != None and ant.player == enemyInv.player and ant.health <= UNIT_STATS[SOLDIER][ATTACK]:
+                        soldierHue += 25
+                    elif ant != None and ant.player == enemyInv.player:
+                        soldierHue += 20
+        
+        
         
         if len(myAntList) > 0:
             for soldier in enemySoldiers:
                 soldierHue -= 25 - approxDist(soldier.coords, myAntList[0].coords)
+                
+                for coord in listAdjacent(soldier.coords):
+                    ant = getAntAt(currentState, coord)
+                    if ant != None and ant.player == myInv.player and ant.health <= UNIT_STATS[SOLDIER][ATTACK]:
+                        soldierHue -= 25
+                    elif ant != None and ant.player == myInv.player:
+                        soldierHue -= 20
 
         return soldierHue
 
@@ -599,8 +622,49 @@ class AIPlayer(Player):
         
         return droneHue
 
+    ##
+    #queen_utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   myInv - our inv
+    #   enemyInv - enemy inv
+    #   currentState - the current GameState object
+    #   
+    #Returns: number from -500 to 500
+    def queen_utility(self, myInv, enemyInv, currentState):
+        queenHue = 0
+        myQueen = myInv.getQueen()
+        enemyQueen = enemyInv.getQueen()
 
+        myArmy = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER))
+        enemyArmy = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER))
+
+        if myQueen.health > 4 and len(enemyArmy) > 0:
+            queenHue += 25 - approxDist(myQueen.coords, enemyArmy[0].coords)
         
+        for coord in listAdjacent(myQueen.coords):
+            ant = getAntAt(currentState, coord)
+            if ant != None and ant.player == enemyInv.player and ant.health <= UNIT_STATS[QUEEN][ATTACK]:
+                queenHue -= 15
+            elif ant != None and ant.player == enemyInv.player:
+                queenHue += 25
+              
+        
+        if enemyQueen.health > 4 and len(myArmy) > 0:
+            queenHue -= 25 - approxDist(enemyQueen.coords, myArmy[0].coords)
+        for coord in listAdjacent(enemyQueen.coords):
+            ant = getAntAt(currentState, coord)
+            if ant != None and ant.player == myInv.player and ant.health <= UNIT_STATS[QUEEN][ATTACK]:
+                queenHue += 15
+            elif ant != None and ant.player == myInv.player:
+                queenHue -= 25
+        
+        return queenHue
+            
+        
+
 
 
         
