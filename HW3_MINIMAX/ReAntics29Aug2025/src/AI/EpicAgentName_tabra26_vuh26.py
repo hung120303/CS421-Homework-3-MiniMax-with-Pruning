@@ -329,7 +329,11 @@ class AIPlayer(Player):
         # initial utility starts at 0 (game is "even")
         ret_utility = 0
 
-        ret_utility = self.food_utility(myInv, enemyInv) + self.worker_utility(myInv, currentState)
+        # Food related
+        ret_utility += self.food_utility(myInv, enemyInv) + self.worker_utility(myInv, currentState)
+
+        # Combat related
+        ret_utility += self.combat_utility(myInv, enemyInv, currentState)
 
         if self.whichPlayer == currentState.whoseTurn:
             return ret_utility
@@ -345,7 +349,7 @@ class AIPlayer(Player):
     #   myInv - our inv
     #   enemyInv - enemy inv
     #   
-    #Returns: number from -1000 to 1000
+    #Returns: number from -10000 to 10000
     def food_utility(self, myInv, enemyInv):
         myFoodCount = myInv.foodCount
         enemyFoodCount = enemyInv.foodCount
@@ -372,7 +376,7 @@ class AIPlayer(Player):
     #   myInv - our inv
     #   currentState - the current GameState object
     #   
-    #Returns: number from -100 to 100
+    #Returns: number from -1000 to 1000
     def worker_utility(self, myInv, currentState):
         workerHue = 0
         enemyId = (myInv.player+1) % 2
@@ -391,10 +395,10 @@ class AIPlayer(Player):
             return 0
         
         if len(myWorkers) > 2:
-            workerHue -= 100
+            workerHue -= 1000
         
         if len(enemyWorkers) > 2:
-            workerHue += 100
+            workerHue += 1000
 
         for worker in myWorkers:
             if worker.carrying and worker.coords in myReturns:
@@ -432,9 +436,175 @@ class AIPlayer(Player):
 
         return workerHue
 
+    ##
+    #combat_utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   myInv - our inv
+    #   enemyInv - enemy inv
+    #   currentState - the current GameState object
+    #   
+    #Returns: number from -10000 to 10000
+    def combat_utility(self, myInv, enemyInv, currentState):
+        # Check for wins
+        myQueen = myInv.getQueen()
+        enemyQueen = enemyInv.getQueen()
+
+        myAntHill = myInv.getAnthill()
+        enemyAntHill = enemyInv.getAnthill()
+
+        if myQueen == None or myQueen.health <= 0:
+            return -10000
+        elif enemyQueen == None or enemyQueen.health <= 0:
+            return 10000
+        elif myAntHill.captureHealth == 0:
+            return -10000
+        elif enemyAntHill.captureHealth == 0:
+            return 10000
+
+        
+        # Affect the utility based on difference in queen hp
+        myQueenHue = round((myQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 450)
+        enemyQueenHue = -round((enemyQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 450)
+
+        # Affect the utility based on difference in queen hp
+        myAnthillHue = round((myQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 450)
+        enemyAnthillHue = -round((enemyQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 450)
+
+        # Contributes to combat hueristic
+        combatHue = myQueenHue + enemyQueenHue + myAnthillHue + enemyAnthillHue
+        
+        # Each ant type contributes to hueristic
+        combatHue += self.drone_utility(myInv, enemyInv, currentState)
+        combatHue += self.soldier_utility(myInv, enemyInv, currentState)
+        
+        # Total army composition affects hueristic
+        combatHue += self.attack_inventory_utility(myInv, enemyInv, currentState)
+
+        return combatHue
+
+    ##
+    #soldier_utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   myInv - our inv
+    #   enemyInv - enemy inv
+    #   currentState - the current GameState object
+    #   
+    #Returns: number from -2500 to 2500
+    def attack_inventory_utility(self, myInv, enemyInv, currentState):
+        inventoryHue = 0
+
+        myArmy = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER))
+        enemyArmy = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER))
+
+        if len(myArmy) > 3:
+            inventoryHue -= 250 * (len(myArmy) - 2)
+        if len(enemyArmy) > 3:
+            inventoryHue += 250 * (len(enemyArmy) - 2)
+
+        if len(myArmy) == len(enemyArmy):
+            inventoryHue += 0
+        else:
+            inventoryHue += 5*(len(myArmy) - len(enemyArmy))
+
+        return inventoryHue
+
+
+    ##
+    #soldier_utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   myInv - our inv
+    #   enemyInv - enemy inv
+    #   currentState - the current GameState object
+    #   
+    #Returns: number from -500 to 500
+    def soldier_utility(self, myInv, enemyInv, currentState):
+        soldierHue = 0
+
+        myAntList = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER, WORKER, QUEEN))
+        enemyAntList = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER, WORKER, QUEEN))
+
+        mySoldiers = getAntList(currentState, myInv.player, (SOLDIER,))
+        enemySoldiers = getAntList(currentState, enemyInv.player, (SOLDIER,))
+
+        if len(enemyAntList) > 0:
+            for soldier in mySoldiers:
+                soldierHue += 25 - approxDist(soldier.coords, enemyAntList[0].coords)
+        
+        if len(myAntList) > 0:
+            for soldier in enemySoldiers:
+                soldierHue -= 25 - approxDist(soldier.coords, myAntList[0].coords)
+
+        return soldierHue
+
+
+    ##
+    #drone_utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   myInv - our inv
+    #   enemyInv - enemy inv
+    #   currentState - the current GameState object
+    #   
+    #Returns: number from -500 to 500
+    def drone_utility(self, myInv, enemyInv, currentState):
+        droneHue = 0
+        myWorkers = getAntList(currentState, myInv.player, (WORKER,))
+        enemyWorkers = getAntList(currentState, enemyInv.player, (WORKER,))
+
+        myDrones = getAntList(currentState, myInv.player, (DRONE,))
+        enemyDrones = getAntList(currentState, enemyInv.player, (DRONE,))
+
+        if enemyInv.foodCount >= 5 and len(myDrones) == 1 and len(enemyWorkers) > 0:
+            droneHue += 100
+        if myInv.foodCount >= 5 and len(enemyDrones) == 1 and len(myWorkers) > 0:
+            droneHue -= 100
+
+        if len(myDrones) > 1:
+            droneHue -= 200
+        if len(enemyDrones) > 1:
+            droneHue += 200
+
+        if len(enemyWorkers) == 0:
+            droneHue += 150
+            for drone in myDrones:
+                droneHue += 10 - approxDist(drone.coords, enemyInv.getQueen().coords)
+        else:
+            for drone in myDrones:
+                if drone.coords in listAdjacent(enemyWorkers[0].coords):
+                    droneHue += 50
+                else:
+                    droneHue += 25 - approxDist(drone.coords, enemyWorkers[0].coords)
+                    
+        if len(myWorkers) == 0:
+            droneHue -= 150   
+            for drone in enemyDrones:
+                droneHue -= 10 - approxDist(drone.coords, myInv.getQueen().coords)
+        else:
+            for drone in enemyDrones:
+                if drone.coords in listAdjacent(myWorkers[0].coords):
+                    droneHue -= 50
+                else:
+                    droneHue -= 25 - approxDist(drone.coords, myWorkers[0].coords)
+        
+        return droneHue
 
 
         
+
+
+        
+    # Everything below is not used just referenced
 
     #utility
     #Description: Looks at a GameState object and gives a 
