@@ -182,7 +182,7 @@ class AIPlayer(Player):
             return self.utility(state) + random.uniform(-2, 2)
 
         # ----------- TOP-N-PERCENT NODE FILTER -----------
-        keep_ratio = 0.2  # keep the top 30% of nodes
+        keep_ratio = 0.1  # keep the top 30% of nodes
         nodeList.sort(key=lambda n: n["eval"], reverse=isMax)
         k = max(1, int(len(nodeList) * keep_ratio))
         nodeList = nodeList[:k]
@@ -394,11 +394,17 @@ class AIPlayer(Player):
         if len(myReturns) == 0 or len(enemyReturns) == 0 or len(foodList) == 0:
             return 0
         
+        if len(myWorkers) == 0:
+            workerHue -= 500
+
+        if len(enemyWorkers) == 0:
+            workerHue += 500
+
         if len(myWorkers) > 2:
-            workerHue -= 1000
+            workerHue -= 1000 + 100*len(myWorkers)
         
         if len(enemyWorkers) > 2:
-            workerHue += 1000
+            workerHue += 1000 + 100*len(enemyWorkers)
 
         for worker in myWorkers:
             if worker.carrying and worker.coords in myReturns:
@@ -466,12 +472,12 @@ class AIPlayer(Player):
 
         
         # Affect the utility based on difference in queen hp
-        myQueenHue = round((myQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 450)
-        enemyQueenHue = -round((enemyQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 450)
+        myQueenHue = round((myQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 4500)
+        enemyQueenHue = -round((enemyQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 4500)
 
         # Affect the utility based on difference in queen hp
-        myAnthillHue = round((myQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 450)
-        enemyAnthillHue = -round((enemyQueen.health / UNIT_STATS[QUEEN][HEALTH]) * 450)
+        myAnthillHue = round((myAntHill.captureHealth / CONSTR_STATS[ANTHILL][CAP_HEALTH]) * 4500)
+        enemyAnthillHue = -round((enemyAntHill.captureHealth / CONSTR_STATS[ANTHILL][CAP_HEALTH]) * 4500)
 
         # Contributes to combat hueristic
         combatHue = myQueenHue + enemyQueenHue + myAnthillHue + enemyAnthillHue
@@ -480,6 +486,7 @@ class AIPlayer(Player):
         combatHue += self.drone_utility(myInv, enemyInv, currentState)
         combatHue += self.soldier_utility(myInv, enemyInv, currentState)
         combatHue += self.queen_utility(myInv, enemyInv, currentState)
+        combatHue += self.ranged_utility(myInv, enemyInv, currentState)
         
         # Total army composition affects hueristic
         combatHue += self.attack_inventory_utility(myInv, enemyInv, currentState)
@@ -505,12 +512,20 @@ class AIPlayer(Player):
 
         if len(myArmy) == len(enemyArmy):
             inventoryHue += 0
-        else:
-            inventoryHue += 25*(len(myArmy) - len(enemyArmy))
+        elif len(myArmy) == len(enemyArmy) + 1:
+            inventoryHue += 50
+        elif len(enemyArmy) == len(myArmy) + 1:
+            inventoryHue -= 50
+        elif len(myArmy) > len(enemyArmy) + 1:
+            inventoryHue -= 50 * (len(myArmy) - len(enemyArmy))
+        elif len(enemyArmy) > len(myArmy) + 1:
+            inventoryHue += 50 * (len(enemyArmy) - len(myArmy))
         
-        if len(myArmy) == 0:
+        if len(myArmy) == 0 and len(enemyArmy) == 0:
+            inventoryHue == 0
+        elif len(myArmy) == 0:
             inventoryHue -= 250
-        if len(enemyArmy) == 0:
+        elif len(enemyArmy) == 0:
             inventoryHue += 250
 
         return inventoryHue
@@ -530,19 +545,23 @@ class AIPlayer(Player):
     def soldier_utility(self, myInv, enemyInv, currentState):
         soldierHue = 0
 
-        myAntList = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER, WORKER, QUEEN))
-        enemyAntList = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER, WORKER, QUEEN))
+        myAntList = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER, QUEEN))
+        enemyAntList = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER, QUEEN))
 
         mySoldiers = getAntList(currentState, myInv.player, (SOLDIER,))
         enemySoldiers = getAntList(currentState, enemyInv.player, (SOLDIER,))
+        
+        myWorkers = getAntList(currentState, myInv.player, (SOLDIER,))
+        enemyWorkers = getAntList(currentState, enemyInv.player, (SOLDIER,))
 
 
         
 
 
         if len(enemyAntList) > 0:
+            soldierHue -= len(enemyAntList)*5
             if len(mySoldiers) > 0:
-                soldierHue += 100
+                soldierHue += 50
             for soldier in mySoldiers:
                 soldierHue += 50 - 5*approxDist(soldier.coords, enemyAntList[0].coords)
 
@@ -552,14 +571,21 @@ class AIPlayer(Player):
                         soldierHue += 100
                     elif ant != None and ant.player == enemyInv.player:
                         soldierHue += 25
+        elif len(enemyWorkers) > 0:
+            for soldier in mySoldiers:
+                soldierHue += 100 - 10*approxDist(soldier.coords, enemyWorkers[0].coords)
         else:
             soldierHue += 125
+            for soldier in mySoldiers:
+                if soldier.coords == enemyInv.getAnthill().coords:
+                    soliderHue += 125
         
         
         
         if len(myAntList) > 0:
+            soldierHue += len(enemyAntList)*5
             if len(enemySoldiers) > 0:
-                soldierHue -= 100
+                soldierHue -= 50
             for soldier in enemySoldiers:
                 soldierHue -= 50 - 5*approxDist(soldier.coords, myAntList[0].coords)
                 
@@ -569,8 +595,14 @@ class AIPlayer(Player):
                         soldierHue -= 100
                     elif ant != None and ant.player == myInv.player:
                         soldierHue -= 25
+        elif len(myWorkers) > 0:
+            for soldier in enemySoldiers:
+                soldierHue += 100 - 10*approxDist(soldier.coords, myWorkers[0].coords)
         else:
             soldierHue -= 125
+            for soldier in enemySoldiers:
+                if soldier.coords == myInv.getAnthill().coords:
+                    soliderHue -= 125
 
         return soldierHue
 
@@ -594,9 +626,9 @@ class AIPlayer(Player):
         myDrones = getAntList(currentState, myInv.player, (DRONE,))
         enemyDrones = getAntList(currentState, enemyInv.player, (DRONE,))
 
-        if enemyInv.foodCount >= 5 and len(myDrones) == 1 and len(enemyWorkers) > 0:
+        if enemyInv.foodCount >= 4 and len(myDrones) == 1 and len(enemyWorkers) > 0:
             droneHue += 100
-        if myInv.foodCount >= 5 and len(enemyDrones) == 1 and len(myWorkers) > 0:
+        if myInv.foodCount >= 4 and len(enemyDrones) == 1 and len(myWorkers) > 0:
             droneHue -= 100
 
         if len(myDrones) > 1:
@@ -607,22 +639,28 @@ class AIPlayer(Player):
         if len(enemyWorkers) == 0:
             droneHue += 150
             for drone in myDrones:
-                droneHue += 10 - approxDist(drone.coords, enemyInv.getQueen().coords)
+                droneHue += 50 - 5*approxDist(drone.coords, enemyInv.getQueen().coords)
+                droneHue += 50 - 5*approxDist(drone.coords, enemyInv.getAnthill().coords)
+                if drone.coords == enemyInv.getAnthill().coords:
+                    droneHue += 125
         else:
             for drone in myDrones:
                 if drone.coords in listAdjacent(enemyWorkers[0].coords):
-                    droneHue += 250
+                    droneHue += 125
                 else:
                     droneHue += 125 - 10*approxDist(drone.coords, enemyWorkers[0].coords)
                     
         if len(myWorkers) == 0:
             droneHue -= 150   
             for drone in enemyDrones:
-                droneHue -= 10 - approxDist(drone.coords, myInv.getQueen().coords)
+                droneHue -= 50 - 5*approxDist(drone.coords, myInv.getQueen().coords)
+                droneHue -= 50 - 5*approxDist(drone.coords, myInv.getAnthill().coords)
+                if drone.coords == myInv.getAnthill().coords:
+                    droneHue -= 125
         else:
             for drone in enemyDrones:
                 if drone.coords in listAdjacent(myWorkers[0].coords):
-                    droneHue -= 250
+                    droneHue -= 125
                 else:
                     droneHue -= 125 - 10*approxDist(drone.coords, myWorkers[0].coords)
         
@@ -669,7 +707,30 @@ class AIPlayer(Player):
         
         return queenHue
             
+    ##
+    #ranged_utility
+    #Description: Looks at a GameState object and gives a 
+    #   heuristic guess of good the game state is. 
+    #
+    #Parameters:
+    #   myInv - our inv
+    #   enemyInv - enemy inv
+    #   currentState - the current GameState object
+    #   
+    #Returns: number from -500 to 500
+    def ranged_utility(self, myInv, enemyInv, currentState):
+        rangedHue = 0
         
+        myRangers = getAntList(currentState, myInv.player, (R_SOLDIER,))
+        enemyRangers = getAntList(currentState, enemyInv.player, (R_SOLDIER,))
+
+        # No ranged troops 
+        if len(myRangers) > 0:
+            rangedHue -= 100
+        if len(enemyRangers) > 0:
+            rangedHue += 100
+        
+        return rangedHue
 
 
 
