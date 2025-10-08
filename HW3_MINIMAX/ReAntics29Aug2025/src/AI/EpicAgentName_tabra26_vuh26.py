@@ -123,7 +123,7 @@ class AIPlayer(Player):
                 bestVal = val
                 bestMove = child["move"]
 
-        #fallback in case nothing gets chosen
+        # fallback in case nothing gets chosen
         if bestMove is None:
             return Move(END, None, None)
         
@@ -188,7 +188,7 @@ class AIPlayer(Player):
         nodeList = nodeList[:k]
         # -------------------------------------------------
 
-        # α-β search
+        # alpha beta search
         if isMax:
             value = -math.inf
             for child in nodeList:
@@ -378,9 +378,13 @@ class AIPlayer(Player):
     #   
     #Returns: number from -1000 to 1000
     def worker_utility(self, myInv, currentState):
-        workerHue = 0
-        enemyId = (myInv.player+1) % 2
 
+        workerHue = 0
+        enemyId = (myInv.player+1) % 2 #opponent ID
+
+
+
+        #key ants for both players and structures
         myReturns = getConstrList(currentState, myInv.player, (ANTHILL, TUNNEL))
         enemyReturns = getConstrList(currentState, enemyId, (ANTHILL, TUNNEL))
 
@@ -394,6 +398,9 @@ class AIPlayer(Player):
         if len(myReturns) == 0 or len(enemyReturns) == 0 or len(foodList) == 0:
             return 0
         
+
+        # punish or not punish workers based on state of the game
+
         if len(myWorkers) == 0:
             workerHue -= 500
 
@@ -406,16 +413,26 @@ class AIPlayer(Player):
         if len(enemyWorkers) > 2:
             workerHue += 1000 + 100*len(enemyWorkers)
 
+
+
+
+
+        #my worker behavior
+
         for worker in myWorkers:
             if worker.carrying and worker.coords in myReturns:
+                #return to structure if has food
                 workerHue += 50
             elif worker.carrying:
+                #reward being close to anthill
                 distOne = approxDist(worker.coords, myReturns[0].coords)
                 distTwo = approxDist(worker.coords, myReturns[1].coords)
                 workerHue += 25 - min(distOne, distTwo)
             elif worker.coords in foodList:
+                #reward standing on food
                 workerHue += 50
             else:
+                # reward coming close to food
                 distOne = approxDist(worker.coords, foodList[0].coords)
                 distTwo = approxDist(worker.coords, foodList[1].coords)
                 distThree = approxDist(worker.coords, foodList[2].coords)
@@ -423,16 +440,23 @@ class AIPlayer(Player):
                 workerHue += 15 - min(distOne, distTwo, distThree, distFour)
             
 
+
+        #their workers
+
         for worker in enemyWorkers:
             if worker.carrying and worker.coords in myReturns:
+                #nad when enemy carrying food near structures
                 workerHue -= 50
             elif worker.carrying:
+                #punish being close to structures when enemy near hill/hole
                 distOne = approxDist(worker.coords, enemyReturns[0].coords)
                 distTwo = approxDist(worker.coords, enemyReturns[1].coords)
                 workerHue -= 25 - min(distOne, distTwo)
             elif worker.coords in foodList:
+                #directly on hill/hole very bad
                 workerHue -= 50
             else:
+                #not carrying
                 distOne = approxDist(worker.coords, foodList[0].coords)
                 distTwo = approxDist(worker.coords, foodList[1].coords)
                 distThree = approxDist(worker.coords, foodList[2].coords)
@@ -461,6 +485,8 @@ class AIPlayer(Player):
         myAntHill = myInv.getAnthill()
         enemyAntHill = enemyInv.getAnthill()
 
+
+        #watch health of queen
         if myQueen == None or myQueen.health <= 0:
             return -10000
         elif enemyQueen == None or enemyQueen.health <= 0:
@@ -507,9 +533,12 @@ class AIPlayer(Player):
     def attack_inventory_utility(self, myInv, enemyInv, currentState):
         inventoryHue = 0
 
+        #all ants that can combat
         myArmy = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER))
         enemyArmy = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER))
 
+
+        #compare sizes of ant armies
         if len(myArmy) == len(enemyArmy):
             inventoryHue += 0
         elif len(myArmy) == len(enemyArmy) + 1:
@@ -521,6 +550,7 @@ class AIPlayer(Player):
         elif len(enemyArmy) > len(myArmy) + 1:
             inventoryHue += 50 * (len(enemyArmy) - len(myArmy))
         
+        #edge cases (no enemies on either side)
         if len(myArmy) == 0 and len(enemyArmy) == 0:
             inventoryHue == 0
         elif len(myArmy) == 0:
@@ -542,9 +572,12 @@ class AIPlayer(Player):
     #   currentState - the current GameState object
     #   
     #Returns: number from -500 to 500
+
+
     def soldier_utility(self, myInv, enemyInv, currentState):
         soldierHue = 0
 
+        #reference lists for both sides
         myAntList = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER, QUEEN))
         enemyAntList = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER, QUEEN))
 
@@ -557,24 +590,31 @@ class AIPlayer(Player):
 
         
 
-
+        
         if len(enemyAntList) > 0:
             soldierHue -= len(enemyAntList)*5
+            #reward soldiers alive
             if len(mySoldiers) > 0:
                 soldierHue += 50
+
+            #reward being closer to attacking enemies
             for soldier in mySoldiers:
                 soldierHue += 50 - 5*approxDist(soldier.coords, enemyAntList[0].coords)
 
                 for coord in listAdjacent(soldier.coords):
                     ant = getAntAt(currentState, coord)
                     if ant != None and ant.player == enemyInv.player and ant.health <= UNIT_STATS[SOLDIER][ATTACK]:
+                        #OHKO = big reward
                         soldierHue += 100
                     elif ant != None and ant.player == enemyInv.player:
+                        #else still reward
                         soldierHue += 25
         elif len(enemyWorkers) > 0:
+            #go after workers
             for soldier in mySoldiers:
                 soldierHue += 100 - 10*approxDist(soldier.coords, enemyWorkers[0].coords)
         else:
+            #no enemies left = reward standing on anthill
             soldierHue += 125
             for soldier in mySoldiers:
                 if soldier.coords == enemyInv.getAnthill().coords:
@@ -583,15 +623,22 @@ class AIPlayer(Player):
         
         
         if len(myAntList) > 0:
+            #increase tension if enemy ants on board
+
             soldierHue += len(enemyAntList)*5
+
+            #if soldiers exist penalize
             if len(enemySoldiers) > 0:
                 soldierHue -= 50
+
+            #each enemy soldier
             for soldier in enemySoldiers:
                 soldierHue -= 50 - 5*approxDist(soldier.coords, myAntList[0].coords)
                 
                 for coord in listAdjacent(soldier.coords):
                     ant = getAntAt(currentState, coord)
                     if ant != None and ant.player == myInv.player and ant.health <= UNIT_STATS[SOLDIER][ATTACK]:
+                        #same penalties for enemy hits
                         soldierHue -= 100
                     elif ant != None and ant.player == myInv.player:
                         soldierHue -= 25
@@ -620,46 +667,66 @@ class AIPlayer(Player):
     #Returns: number from -500 to 500
     def drone_utility(self, myInv, enemyInv, currentState):
         droneHue = 0
+
+        #lists of both sides
         myWorkers = getAntList(currentState, myInv.player, (WORKER,))
         enemyWorkers = getAntList(currentState, enemyInv.player, (WORKER,))
 
         myDrones = getAntList(currentState, myInv.player, (DRONE,))
         enemyDrones = getAntList(currentState, enemyInv.player, (DRONE,))
 
+
+        #reward drone pressure when enemy close to food
         if enemyInv.foodCount >= 4 and len(myDrones) == 1 and len(enemyWorkers) > 0:
             droneHue += 100
+
+        #if we close to win and enemy has one drone, penalize cuz drone can threaten workers
         if myInv.foodCount >= 4 and len(enemyDrones) == 1 and len(myWorkers) > 0:
             droneHue -= 100
 
+
+        #penalize too many drones
         if len(myDrones) > 1:
             droneHue -= 200
         if len(enemyDrones) > 1:
             droneHue += 200
 
+
+        #offensive drone positioning
+
         if len(enemyWorkers) == 0:
+            #no enemy workers - drones attack high val targets hill and queen
             droneHue += 150
             for drone in myDrones:
                 droneHue += 50 - 5*approxDist(drone.coords, enemyInv.getQueen().coords)
                 droneHue += 50 - 5*approxDist(drone.coords, enemyInv.getAnthill().coords)
                 if drone.coords == enemyInv.getAnthill().coords:
                     droneHue += 125
+
         else:
             for drone in myDrones:
                 if drone.coords in listAdjacent(enemyWorkers[0].coords):
+                    #reward being close to workers
                     droneHue += 125
                 else:
+                    #get close to worker
                     droneHue += 125 - 10*approxDist(drone.coords, enemyWorkers[0].coords)
                     
+
         if len(myWorkers) == 0:
+            # we have no workers - bad situation
             droneHue -= 150   
             for drone in enemyDrones:
                 droneHue -= 50 - 5*approxDist(drone.coords, myInv.getQueen().coords)
                 droneHue -= 50 - 5*approxDist(drone.coords, myInv.getAnthill().coords)
+                #if enemy on anthill bad
                 if drone.coords == myInv.getAnthill().coords:
                     droneHue -= 125
         else:
+
             for drone in enemyDrones:
                 if drone.coords in listAdjacent(myWorkers[0].coords):
+                    #bad if enemy drone next to worker
                     droneHue -= 125
                 else:
                     droneHue -= 125 - 10*approxDist(drone.coords, myWorkers[0].coords)
@@ -679,15 +746,22 @@ class AIPlayer(Player):
     #Returns: number from -500 to 500
     def queen_utility(self, myInv, enemyInv, currentState):
         queenHue = 0
+
+        #get lists of both sides
         myQueen = myInv.getQueen()
         enemyQueen = enemyInv.getQueen()
 
         myArmy = getAntList(currentState, myInv.player, (SOLDIER,DRONE,R_SOLDIER))
         enemyArmy = getAntList(currentState, enemyInv.player, (SOLDIER,DRONE,R_SOLDIER))
 
+
+        # get away from enemies:
+
         if myQueen.health > 4 and len(enemyArmy) > 0:
+            #smaller bonus for more enemies close
             queenHue += 25 - approxDist(myQueen.coords, enemyArmy[0].coords)
         
+        #evaluate risk of combat
         for coord in listAdjacent(myQueen.coords):
             ant = getAntAt(currentState, coord)
             if ant != None and ant.player == enemyInv.player and ant.health <= UNIT_STATS[QUEEN][ATTACK]:
@@ -696,6 +770,7 @@ class AIPlayer(Player):
                 queenHue += 25
               
         
+        #reward more aggression if queen is healthy and we have good army
         if enemyQueen.health > 4 and len(myArmy) > 0:
             queenHue -= 25 - approxDist(enemyQueen.coords, myArmy[0].coords)
         for coord in listAdjacent(enemyQueen.coords):
@@ -794,21 +869,27 @@ class AIPlayer(Player):
             foodTurns = foodTurns + math.ceil(foodTurns * numEnemyWorkers / 2)
 
         for worker in myWorkerList:
+
+            #if worker into enemy territory punish
             if worker.coords[1] > 3:
                 foodTurns += 1000
             if not worker.hasMoved:
                 foodTurns += 10
             
+            #carrying vs seeking food adjustment
             if worker.carrying:
                 foodTurns -= 2
                 distFromTunnel = stepsToReach(currentState, worker.coords, myTunnel.coords)
                 distFromAnthill = stepsToReach(currentState, worker.coords, myAntHill.coords)
                 bestDist = min(distFromAnthill, distFromTunnel)
+
+                #close to home = more favor
                 if bestDist == 0:
                     foodTurns -= 15
                 else:
                     foodTurns -= 12 - bestDist
             else:
+                #reward food proximity
                 distFromFoodOne = stepsToReach(currentState, worker.coords, myFood[0].coords)
                 distFromFoodTwo = stepsToReach(currentState, worker.coords, myFood[1].coords)
                 bestDist = min(distFromFoodOne, distFromFoodTwo)
@@ -845,14 +926,18 @@ class AIPlayer(Player):
 
         combatScore = (len(enemyAntList) * 2 - len(attackAntList)) * 10
         for attackAnt in attackAntList:
+            #encourage movement
             if attackAnt.hasMoved:
                 combatScore -= 5
             else:
                 combatScore += 5
 
+            #penalize if too far back
             if attackAnt.coords[1] >= 5:
                 combatScore -= 2
 
+
+            #find closest enemy
             closestEnemy = None
             closestWorker = None
             shortestDist = math.inf
@@ -868,7 +953,7 @@ class AIPlayer(Player):
                 break
 
             if attackAnt.type == QUEEN:
-                # --- NEGATED queen scoring ---
+                
                 if attackAnt.health <= 4:
                     combatScore += shortestDist   # inverted sign
                 elif closestEnemy.type != WORKER:
@@ -876,34 +961,43 @@ class AIPlayer(Player):
                 for coord in listReachableAdjacent(currentState, attackAnt.coords, UNIT_STATS[QUEEN][MOVEMENT]):
                     if getAntAt(currentState, coord) and getAntAt(currentState, coord).type == WORKER:
                         foodTurns += 3             # inverted sign
-                # --- end negated block ---
+                
             elif attackAnt.type == DRONE:
+                #hurt enemy workers
                 if closestWorker is not None:
                     combatScore += approxDist(attackAnt.coords, closestWorker.coords)
                 else:
                     combatScore += shortestDist
+
             elif attackAnt.type == R_SOLDIER:
+                #ranged soldiers in correct range reward
                 if UNIT_STATS[R_SOLDIER][RANGE] == shortestDist:
                     combatScore -= 1
                 else:
                     combatScore += shortestDist
             elif attackAnt.type == SOLDIER:
+                #regular soldiers should be closer
                 combatScore += shortestDist
             
+            #dont be in attack range
             if enemyDist <= UNIT_STATS[enemy.type][MOVEMENT] and closestEnemy.type != WORKER:
                 combatScore += 1
 
+            #reward if our if can kill
             if (attackAnt.type != R_SOLDIER and
                 attackAnt.coords in listAdjacent(closestEnemy.coords) and
                 UNIT_STATS[attackAnt.type][ATTACK] >= closestEnemy.health):
                 combatScore -= 10
 
+            #occupy enemy hill
             if attackAnt.coords == enemyAntHill.coords:
                 combatScore -= 10
             
+            #reward being close to enemy hill
             if approxDist(attackAnt.coords, enemyTunnel.coords) <= 3:
                 combatScore -= 1
 
+            #protect own structures
             if myAntHill.captureHealth == 1 and attackAnt.coords == myAntHill.coords:
                 combatScore -= 5
             elif (attackAnt.coords == myTunnel.coords or
@@ -914,9 +1008,12 @@ class AIPlayer(Player):
         numSoldiers = len(getAntList(currentState, myInv.player, (SOLDIER,)))
         numR_Soldiers = len(getAntList(currentState, myInv.player, (R_SOLDIER,)))
 
+        #have at least one combat ant
         if (numDrones + numSoldiers + numR_Soldiers) == 0:
             combatScore += 200
 
+
+        #adjust worker ratios/enemies
         if numDrones == 1 and numEnemyWorkers == 1:
             combatScore -= 5
         elif numEnemyWorkers == 0:
